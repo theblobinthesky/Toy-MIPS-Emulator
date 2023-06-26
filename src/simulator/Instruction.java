@@ -4,7 +4,9 @@ public class Instruction {
     InstructionType type;
     Opcode opcode;
     Funct funct;
-    RegisterName rd, rs, rt;
+    RegisterName rd = RegisterName.zero;
+    RegisterName rs = RegisterName.zero;
+    RegisterName rt = RegisterName.zero;
     short immediate;
     int pseudoAddress;
 

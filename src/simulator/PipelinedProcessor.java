@@ -68,6 +68,11 @@ public class PipelinedProcessor implements Processor {
         int memRead;
     }
 
+    private static class ForwardedRegisters {
+        int registerValue1;
+        int registerValue2;
+    }
+
     private PipelineOutRegisters<AllControl, FetchDecodeData> fetchDecodeRegs;
     private PipelineOutRegisters<AllControl, DecodeExecuteData> decodeExecuteRegs;
     private PipelineOutRegisters<AllControl, ExecuteMemoryData> executeMemoryRegs;
@@ -111,7 +116,7 @@ public class PipelinedProcessor implements Processor {
         AllControl control = null;
         FetchDecodeData data = new FetchDecodeData();
         data.instruction = instructionMemory.fetchInstruction(programCounter);
-        assert data.instruction != null;
+        if (data.instruction == null) return; // just ignore. not important.
 
         switch (data.instruction.type) {
             case RType -> {
@@ -176,21 +181,64 @@ public class PipelinedProcessor implements Processor {
         decodeExecuteRegs.swapInAtTheEndOfCycle(allControl, data);
     }
 
+
+    private boolean requiresForward(boolean regWrite, Instruction instruction, RegisterName required) {
+        // TODO: This is unnecessary complexity and this should probably not depend on the encoding.
+        if (!regWrite) return false;
+        else if (instruction.type == Instruction.InstructionType.RType) {
+            return instruction.rd != RegisterName.zero && instruction.rd == required;
+        } else if (instruction.type == Instruction.InstructionType.IType) {
+            return instruction.rt != RegisterName.zero && instruction.rt == required;
+        } else return false;
+    }
+
+    private ForwardedRegisters forwardRegisters() {
+        DecodeExecuteData decodeExecuteData = decodeExecuteRegs.getDataDuringCycle();
+
+        AllControl executeMemoryControl = executeMemoryRegs.getControlDuringCycle();
+        ExecuteMemoryData executeMemoryData = executeMemoryRegs.getDataDuringCycle();
+
+        AllControl memoryWriteBackControl = memoryWriteBackRegs.getControlDuringCycle();
+        MemoryWriteBackData memoryWriteBackData = memoryWriteBackRegs.getDataDuringCycle();
+
+        ForwardedRegisters forwarded = new ForwardedRegisters();
+        forwarded.registerValue1 = decodeExecuteData.registerValue1;
+        forwarded.registerValue2 = decodeExecuteData.registerValue2;
+
+        if (requiresForward(executeMemoryControl.regWrite, executeMemoryData.instruction, decodeExecuteData.instruction.rs)) {
+            // Checking the Execute/Memory register first actually avoids a double data hazard,
+            // since the most recent result (that being from Execute/Memory not Memory/WriteBack) has to be forwarded.
+            forwarded.registerValue1 = executeMemoryData.aluOutput;
+        } else if (requiresForward(memoryWriteBackControl.regWrite, memoryWriteBackData.instruction, decodeExecuteData.instruction.rs)) {
+            forwarded.registerValue1 = memoryWriteBackData.aluOutput;
+        }
+
+        if (requiresForward(executeMemoryControl.regWrite, executeMemoryData.instruction, decodeExecuteData.instruction.rt)) {
+            forwarded.registerValue2 = executeMemoryData.aluOutput;
+        } else if (requiresForward(memoryWriteBackControl.regWrite, memoryWriteBackData.instruction, decodeExecuteData.instruction.rt)) {
+            forwarded.registerValue2 = memoryWriteBackData.aluOutput;
+        }
+
+        return forwarded;
+    }
+
     private void doExecute() {
         AllControl allControl = decodeExecuteRegs.getControlDuringCycle();
         DecodeExecuteData decodeExecuteData = decodeExecuteRegs.getDataDuringCycle();
 
+        ForwardedRegisters forwarded = forwardRegisters();
+
         ExecuteMemoryData data = new ExecuteMemoryData();
         data.instruction = decodeExecuteData.instruction;
-        data.registerValue2 = decodeExecuteData.registerValue2;
+        data.registerValue2 = forwarded.registerValue2;
 
         int signExtendedAddress = decodeExecuteData.instruction.immediate;
 
-        int value2 = decodeExecuteData.registerValue2;
+        int value2 = forwarded.registerValue2;
         if (allControl.aluSrc) value2 = signExtendedAddress;
         else if (allControl.aluAddImmediate) value2 = decodeExecuteData.instruction.immediate;
 
-        data.aluOutput = alu.calculate(allControl.aluOp, decodeExecuteData.registerValue1, value2);
+        data.aluOutput = alu.calculate(allControl.aluOp, forwarded.registerValue1, value2);
         data.aluZero = (data.aluOutput == 0);
 
         executeMemoryRegs.swapInAtTheEndOfCycle(allControl, data);
@@ -234,6 +282,13 @@ public class PipelinedProcessor implements Processor {
 
     private void simulateCycle() {
         doInstructionFetch();
+        doExecute();
+        doMemory();
+        doWriteBack();
+        doInstructionDecode(); // Instructions have to be able to "pass through" the register table.
+
+        /*endCycle();
+
         doInstructionDecode();
         doExecute();
         doMemory();
@@ -241,13 +296,6 @@ public class PipelinedProcessor implements Processor {
 
         endCycle();
 
-        doInstructionDecode();
-        doExecute();
-        doMemory();
-        doWriteBack();
-
-        endCycle();
-
         doExecute();
         doMemory();
         doWriteBack();
@@ -259,7 +307,7 @@ public class PipelinedProcessor implements Processor {
 
         endCycle();
 
-        doWriteBack();
+        doWriteBack();*/
 
         // Lastly increase the pc.
         AllControl allControl = memoryWriteBackRegs.getControlDuringCycle();
@@ -282,6 +330,11 @@ public class PipelinedProcessor implements Processor {
 
     public void simulate() {
         while (instructionMemory.hasNextInstruction(programCounter)) {
+            simulateCycle();
+        }
+
+        // Work through the remaining pipeline stages.
+        for (int i = 0; i < 5; i++) {
             simulateCycle();
         }
     }

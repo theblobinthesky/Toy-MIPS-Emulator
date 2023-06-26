@@ -23,6 +23,10 @@ public class AddSubTest extends AssemblyTest {
 
     @Override
     public void test() {
+        assertEquals(RegisterName.t2, -1924);
+        assertEquals(RegisterName.t3, 128);
+        assertEquals(RegisterName.t4, 9127);
+        assertEquals(RegisterName.t1, 128 + 9127);
         assertEquals(RegisterName.t0, -11051);
     }
 }
