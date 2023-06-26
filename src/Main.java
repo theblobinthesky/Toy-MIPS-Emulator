@@ -1,11 +1,13 @@
 import simulator.NaiveProcessor;
+import simulator.PipelinedProcessor;
+import simulator.Processor;
 import tests.*;
 
 import java.util.Arrays;
 
 public class Main {
     public static void main(String[] args) {
-        NaiveProcessor processor = new NaiveProcessor();
+        Processor processor = new PipelinedProcessor();
 
         // Run all assembly tests.
 

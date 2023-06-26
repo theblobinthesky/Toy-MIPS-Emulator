@@ -2,10 +2,11 @@ package tests;
 
 import simulator.Instruction;
 import simulator.NaiveProcessor;
+import simulator.Processor;
 import simulator.RegisterName;
 
 public class SltTest extends AssemblyTest {
-    public SltTest(NaiveProcessor processor) {
+    public SltTest(Processor processor) {
         super(processor);
     }
 

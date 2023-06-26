@@ -2,10 +2,11 @@ package tests;
 
 import simulator.Instruction;
 import simulator.NaiveProcessor;
+import simulator.Processor;
 import simulator.RegisterName;
 
 public class LwSwTest extends AssemblyTest {
-    public LwSwTest(NaiveProcessor processor) {
+    public LwSwTest(Processor processor) {
         super(processor);
     }
 

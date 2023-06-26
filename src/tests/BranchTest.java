@@ -2,10 +2,11 @@ package tests;
 
 import simulator.Instruction;
 import simulator.NaiveProcessor;
+import simulator.Processor;
 import simulator.RegisterName;
 
 public class BranchTest extends AssemblyTest {
-    public BranchTest(NaiveProcessor processor) {
+    public BranchTest(Processor processor) {
         super(processor);
     }
 

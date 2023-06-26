@@ -2,10 +2,11 @@ package tests;
 
 import simulator.Instruction;
 import simulator.NaiveProcessor;
+import simulator.Processor;
 import simulator.RegisterName;
 
 public class ArithmeticTest extends AssemblyTest {
-    public ArithmeticTest(NaiveProcessor processor) {
+    public ArithmeticTest(Processor processor) {
         super(processor);
     }
 

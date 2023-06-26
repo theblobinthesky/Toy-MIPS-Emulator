@@ -1,6 +1,6 @@
 package simulator;
 
-public class NaiveProcessor {
+public class NaiveProcessor implements Processor {
     private final InstructionMemory instructionMemory;
     private final RegisterTable registerTable;
     private final ALU alu;

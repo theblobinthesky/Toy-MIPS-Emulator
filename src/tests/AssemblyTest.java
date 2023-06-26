@@ -1,17 +1,18 @@
 package tests;
 
 import simulator.NaiveProcessor;
+import simulator.Processor;
 import simulator.RegisterName;
 
 public abstract class AssemblyTest {
-    protected NaiveProcessor processor;
+    protected Processor processor;
 
-    public AssemblyTest(NaiveProcessor processor) {
+    public AssemblyTest(Processor processor) {
         this.processor = processor;
     }
 
     void assertEquals(int gotValue, int expectedValue) {
-        if(gotValue != expectedValue) {
+        if (gotValue != expectedValue) {
             throw new RuntimeException("assertEquals failed. Expected " + expectedValue + ", but got " + gotValue + ".");
         }
     }
@@ -19,11 +20,12 @@ public abstract class AssemblyTest {
     void assertEquals(RegisterName r, int expectedValue) {
         int gotValue = processor.getRegisterValue(r);
 
-        if(gotValue != expectedValue) {
+        if (gotValue != expectedValue) {
             throw new RuntimeException("assertEquals failed. Register " + r + " does was expected to be " + expectedValue + ", but got " + gotValue + ".");
         }
     }
 
     public abstract void record();
+
     public abstract void test();
 }

@@ -2,10 +2,11 @@ package tests;
 
 import simulator.Instruction;
 import simulator.NaiveProcessor;
+import simulator.Processor;
 import simulator.RegisterName;
 
 public class AddSubTest extends AssemblyTest {
-    public AddSubTest(NaiveProcessor processor) {
+    public AddSubTest(Processor processor) {
         super(processor);
     }
 
