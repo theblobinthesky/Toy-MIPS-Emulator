@@ -3,6 +3,7 @@ package simulator;
 public class PipelineOutRegisters<Control, Data> {
     protected Control controlEmpty, controlIn, controlOut;
     protected Data dataEmpty, dataIn, dataOut;
+    boolean keep;
 
     public PipelineOutRegisters(Control emptyControl, Data emptyData) {
         controlEmpty = controlIn = controlOut = emptyControl;
@@ -14,9 +15,18 @@ public class PipelineOutRegisters<Control, Data> {
         this.dataIn = dataIn;
     }
 
+    public void keepAtTheEndOfCycle() {
+        controlIn = controlOut;
+        dataIn = dataOut;
+    }
+
+    public void zeroAtTheEndOfCycle() {
+        controlIn = controlEmpty;
+    }
+
     public void endCycle() {
-        this.controlOut = controlIn;
-        this.dataOut = dataIn;
+        controlOut = controlIn;
+        dataOut = dataIn;
 
         controlIn = controlEmpty;
         dataIn = dataEmpty;

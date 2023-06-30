@@ -44,6 +44,19 @@ public class PipelinedProcessor implements Processor {
         }
     }
 
+    private static class HazardDetectionControl {
+        boolean pcWrite;
+        boolean fetchDecodeWrite;
+
+        public HazardDetectionControl() {
+            reset();
+        }
+
+        public void reset() {
+            pcWrite = fetchDecodeWrite = true;
+        }
+    }
+
     public static class FetchDecodeData {
         Instruction instruction;
     }
@@ -77,6 +90,7 @@ public class PipelinedProcessor implements Processor {
     private PipelineOutRegisters<AllControl, DecodeExecuteData> decodeExecuteRegs;
     private PipelineOutRegisters<AllControl, ExecuteMemoryData> executeMemoryRegs;
     private PipelineOutRegisters<AllControl, MemoryWriteBackData> memoryWriteBackRegs;
+    private HazardDetectionControl hazardDetectionControl;
 
     public PipelinedProcessor() {
         instructionMemory = new InstructionMemory();
@@ -105,6 +119,7 @@ public class PipelinedProcessor implements Processor {
         decodeExecuteRegs = new PipelineOutRegisters<>(emptyControl, emptyDecodeExecuteData);
         executeMemoryRegs = new PipelineOutRegisters<>(emptyControl, emptyExecuteMemoryData);
         memoryWriteBackRegs = new PipelineOutRegisters<>(emptyControl, emptyMemoryWriteBackData);
+        hazardDetectionControl = new HazardDetectionControl();
 
         instructionMemory.zeroOutEverything();
         registerTable.zeroOutEverything();
@@ -113,59 +128,87 @@ public class PipelinedProcessor implements Processor {
     }
 
     private void doInstructionFetch() {
-        AllControl control = null;
-        FetchDecodeData data = new FetchDecodeData();
-        data.instruction = instructionMemory.fetchInstruction(programCounter);
-        if (data.instruction == null) return; // just ignore. not important.
+        if (hazardDetectionControl.fetchDecodeWrite) {
+            AllControl control = null;
+            FetchDecodeData data = new FetchDecodeData();
+            data.instruction = instructionMemory.fetchInstruction(programCounter);
 
-        switch (data.instruction.type) {
-            case RType -> {
-                control = AllControl.getRTypePreset();
+            if (data.instruction == null) return; // just ignore. not important.
 
-                if (data.instruction.opcode == Opcode.arithmetic) {
-                    switch (data.instruction.funct) {
-                        case add -> control.aluOp = ALU.ALUOperation.add;
-                        case sub -> control.aluOp = ALU.ALUOperation.sub;
-                        case and -> control.aluOp = ALU.ALUOperation.and;
-                        case or -> control.aluOp = ALU.ALUOperation.or;
-                        case slt -> control.aluOp = ALU.ALUOperation.slt;
+            switch (data.instruction.type) {
+                case RType -> {
+                    control = AllControl.getRTypePreset();
+
+                    if (data.instruction.opcode == Opcode.arithmetic) {
+                        switch (data.instruction.funct) {
+                            case add -> control.aluOp = ALU.ALUOperation.add;
+                            case sub -> control.aluOp = ALU.ALUOperation.sub;
+                            case and -> control.aluOp = ALU.ALUOperation.and;
+                            case or -> control.aluOp = ALU.ALUOperation.or;
+                            case slt -> control.aluOp = ALU.ALUOperation.slt;
+                        }
                     }
                 }
-            }
-            case IType -> {
-                control = AllControl.getITypePreset();
+                case IType -> {
+                    control = AllControl.getITypePreset();
 
-                switch (data.instruction.opcode) {
-                    case lw -> {
-                        control.aluSrc = true;
-                        control.regWrite = true;
-                        control.memRead = true;
-                        control.memToReg = true;
+                    switch (data.instruction.opcode) {
+                        case lw -> {
+                            control.aluSrc = true;
+                            control.regWrite = true;
+                            control.memRead = true;
+                            control.memToReg = true;
+                        }
+                        case sw -> {
+                            control.aluSrc = true;
+                            control.memWrite = true;
+                        }
+                        case beq -> {
+                            control.branch = true;
+                            control.aluOp = ALU.ALUOperation.sub;
+                        }
+                        case addi -> {
+                            control.aluOp = ALU.ALUOperation.add;
+                            control.aluAddImmediate = true;
+                            control.regWrite = true;
+                        }
                     }
-                    case sw -> {
-                        control.aluSrc = true;
-                        control.memWrite = true;
-                    }
-                    case beq -> {
-                        control.branch = true;
-                        control.aluOp = ALU.ALUOperation.sub;
-                    }
-                    case addi -> {
-                        control.aluOp = ALU.ALUOperation.add;
-                        control.aluAddImmediate = true;
-                        control.regWrite = true;
-                    }
+
                 }
+                case JType -> {
+                    control = AllControl.getJTypePreset();
 
+                    if (data.instruction.opcode == Opcode.j) control.jump = true;
+                }
             }
-            case JType -> {
-                control = AllControl.getJTypePreset();
 
-                if (data.instruction.opcode == Opcode.j) control.jump = true;
-            }
+            fetchDecodeRegs.swapInAtTheEndOfCycle(control, data);
+        } else {
+            fetchDecodeRegs.keepAtTheEndOfCycle();
         }
+    }
 
-        fetchDecodeRegs.swapInAtTheEndOfCycle(control, data);
+    private boolean requiresHazardHandling() {
+        FetchDecodeData fetchDecodeData = fetchDecodeRegs.getDataDuringCycle();
+        AllControl decodeExecuteControl = decodeExecuteRegs.getControlDuringCycle();
+        DecodeExecuteData decodeExecuteData = decodeExecuteRegs.getDataDuringCycle();
+
+        return decodeExecuteControl.memRead && (decodeExecuteData.instruction.opcode == Opcode.lw) &&
+                ((decodeExecuteData.instruction.rt == fetchDecodeData.instruction.rs) || (decodeExecuteData.instruction.rt == fetchDecodeData.instruction.rt));
+    }
+
+    private void insertNopIntoDecodePhase() {
+        hazardDetectionControl.pcWrite = false;
+        hazardDetectionControl.fetchDecodeWrite = false;
+    }
+
+    private void handleInstructionDecodeHazards() {
+        hazardDetectionControl.reset();
+
+        if (requiresHazardHandling()) {
+            insertNopIntoDecodePhase();
+            decodeExecuteRegs.zeroAtTheEndOfCycle();
+        }
     }
 
     private void doInstructionDecode() {
@@ -175,15 +218,18 @@ public class PipelinedProcessor implements Processor {
         DecodeExecuteData data = new DecodeExecuteData();
         data.instruction = fetchDecodeData.instruction;
 
-        data.registerValue1 = registerTable.get(fetchDecodeData.instruction.rs);
-        data.registerValue2 = registerTable.get(fetchDecodeData.instruction.rt);
+        if (!requiresHazardHandling()) {
+            data.registerValue1 = registerTable.get(fetchDecodeData.instruction.rs);
+            data.registerValue2 = registerTable.get(fetchDecodeData.instruction.rt);
 
-        decodeExecuteRegs.swapInAtTheEndOfCycle(allControl, data);
+            decodeExecuteRegs.swapInAtTheEndOfCycle(allControl, data);
+        }
     }
-
 
     private boolean requiresForward(boolean regWrite, Instruction instruction, RegisterName required) {
         // TODO: This is unnecessary complexity and this should probably not depend on the encoding.
+        //       It may not be for the software emulator, but certainly is an issue for a hardware implementation.
+
         if (!regWrite) return false;
         else if (instruction.type == Instruction.InstructionType.RType) {
             return instruction.rd != RegisterName.zero && instruction.rd == required;
@@ -205,18 +251,20 @@ public class PipelinedProcessor implements Processor {
         forwarded.registerValue1 = decodeExecuteData.registerValue1;
         forwarded.registerValue2 = decodeExecuteData.registerValue2;
 
+        int memoryWriteBackValue = memoryWriteBackControl.memToReg ? memoryWriteBackData.memRead : memoryWriteBackData.aluOutput;
+
         if (requiresForward(executeMemoryControl.regWrite, executeMemoryData.instruction, decodeExecuteData.instruction.rs)) {
             // Checking the Execute/Memory register first actually avoids a double data hazard,
             // since the most recent result (that being from Execute/Memory not Memory/WriteBack) has to be forwarded.
             forwarded.registerValue1 = executeMemoryData.aluOutput;
         } else if (requiresForward(memoryWriteBackControl.regWrite, memoryWriteBackData.instruction, decodeExecuteData.instruction.rs)) {
-            forwarded.registerValue1 = memoryWriteBackData.aluOutput;
+            forwarded.registerValue1 = memoryWriteBackValue;
         }
 
         if (requiresForward(executeMemoryControl.regWrite, executeMemoryData.instruction, decodeExecuteData.instruction.rt)) {
             forwarded.registerValue2 = executeMemoryData.aluOutput;
         } else if (requiresForward(memoryWriteBackControl.regWrite, memoryWriteBackData.instruction, decodeExecuteData.instruction.rt)) {
-            forwarded.registerValue2 = memoryWriteBackData.aluOutput;
+            forwarded.registerValue2 = memoryWriteBackValue;
         }
 
         return forwarded;
@@ -281,48 +329,29 @@ public class PipelinedProcessor implements Processor {
     }
 
     private void simulateCycle() {
+        handleInstructionDecodeHazards(); // The Instruction fetch stage has to decide whether to keep the decoded instruction or not.
         doInstructionFetch();
         doExecute();
         doMemory();
         doWriteBack();
         doInstructionDecode(); // Instructions have to be able to "pass through" the register table.
 
-        /*endCycle();
-
-        doInstructionDecode();
-        doExecute();
-        doMemory();
-        doWriteBack();
-
-        endCycle();
-
-        doExecute();
-        doMemory();
-        doWriteBack();
-
-        endCycle();
-
-        doMemory();
-        doWriteBack();
-
-        endCycle();
-
-        doWriteBack();*/
-
         // Lastly increase the pc.
-        AllControl allControl = memoryWriteBackRegs.getControlDuringCycle();
-        MemoryWriteBackData memoryWriteBackData = memoryWriteBackRegs.getDataDuringCycle();
+        if (hazardDetectionControl.pcWrite) {
+            AllControl allControl = memoryWriteBackRegs.getControlDuringCycle();
+            MemoryWriteBackData memoryWriteBackData = memoryWriteBackRegs.getDataDuringCycle();
 
-        programCounter += 4;
+            programCounter += 4;
 
-        if (memoryWriteBackData.aluZero && allControl.branch) {
-            int offset = memoryWriteBackData.instruction.immediate << 2;
-            programCounter += offset;
-        }
+            if (memoryWriteBackData.aluZero && allControl.branch) {
+                int offset = memoryWriteBackData.instruction.immediate << 2;
+                programCounter += offset;
+            }
 
-        if (allControl.jump) {
-            int address = memoryWriteBackData.instruction.pseudoAddress << 2;
-            programCounter = (programCounter & 0xF0000000) | address;
+            if (allControl.jump) {
+                int address = memoryWriteBackData.instruction.pseudoAddress << 2;
+                programCounter = (programCounter & 0xF0000000) | address;
+            }
         }
 
         endCycle();

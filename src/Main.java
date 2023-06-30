@@ -19,7 +19,8 @@ public class Main {
                     new AddSubTest(processor),
                     new DoubleDataHazardTest(processor),
                     new ArithmeticTest(processor),
-                    // new LwSwTest(processor),
+                    new LwSwTest(processor),
+                    new LoadUseHazardTest(processor),
                     // new SltTest(processor),
                     // new JTest(processor),
                     // new BranchTest(processor)

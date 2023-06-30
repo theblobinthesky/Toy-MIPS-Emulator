@@ -1,6 +1,7 @@
 package simulator;
 
 public enum Opcode {
+    nop(0x00),
     lw(0x23),
     sw(0x2B),
     arithmetic(0x00),
